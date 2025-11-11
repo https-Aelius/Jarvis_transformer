@@ -86,6 +86,21 @@ class BigramLanguageModel(nn.Module):
 
         return logits, loss
 
+    def generate(self, idx, max_new_tokens):
+        #idx is (B,T)
+        for j in range(max_new_tokens):
+            #get predictions
+            logits, loss = self(idx)
+            #focus only on last time step
+            logits = logits[:, -1, :] #Becoming (B,C)
+            #applying softmax to get probabilities
+            probs = F.softmax(logits, dim=-1) #(B,C)
+            #sample from distribution
+            idx_next = torch.multinomi(probs, num_samples=1) #(B,1)
+            #appending sampled index to running seq
+            idx=torch.cat((idx, idx_next), dim=1) #(B, T+1)
+        return idx
+
 first = BigramLanguageModel(vocab_size)
 logits, loss = first(xb, yb)
 print(logits.shape)
