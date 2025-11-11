@@ -70,12 +70,25 @@ class BigramLanguageModel(nn.Module):
     #passing index into token embedding table
     def forward(self, idx, targets):
         #idx and targets are both (B,T) tensor of integers
-        logits = self.token_embedding_table(idx) #(B,T,C)
-        #Pytorch will arrange all of this into batch by time by channel tensor.
+
+        # Pytorch will arrange all of this into batch by time by channel tensor.
         # Batch = 4, Time = 8, Channel = vocab_size
-        return logits
+        logits = self.token_embedding_table(idx) #(B,T,C)
+
+        #however cross entropy require (B,C,T) so we're going to restructure our logits
+        B, T, C = logits.shape
+        logits = logits.view(B*T, C)
+        #restructure of targets
+        targets = targets.view(B*T)
+
+        #evaluating loss function by using cross entropy (from PyTorch)
+        loss = F.cross_entropy(logits, targets) #measures quality of logits/prediction with respect to targets.
+
+        return logits, loss
 
 first = BigramLanguageModel(vocab_size)
-out = first(xb, yb) #passing in inputs and targets
-print(out.shape)
+logits, loss = first(xb, yb)
+print(logits.shape)
+print(loss) #negative log liklehood = -ln(1/68)
+
 
