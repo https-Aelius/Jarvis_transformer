@@ -54,6 +54,28 @@ def get_batch(split):
     return x, y
 xb, yb = get_batch('train')
 
-print(xb)
+#print(xb)
 
+#import torch
+import torch.nn as nn
+from torch.nn import functional as F
+torch.manual_seed(1337)
+
+class BigramLanguageModel(nn.Module):
+    def __init__(self, vocab_size):
+        super().__init__()
+        #each token directly reads off logits for next token from lookup table
+        self.token_embedding_table= nn.Embedding(vocab_size, vocab_size)
+
+    #passing index into token embedding table
+    def forward(self, idx, targets):
+        #idx and targets are both (B,T) tensor of integers
+        logits = self.token_embedding_table(idx) #(B,T,C)
+        #Pytorch will arrange all of this into batch by time by channel tensor.
+        # Batch = 4, Time = 8, Channel = vocab_size
+        return logits
+
+first = BigramLanguageModel(vocab_size)
+out = first(xb, yb) #passing in inputs and targets
+print(out.shape)
 
