@@ -116,12 +116,19 @@ class BigramLanguageModel(nn.Module):
         return idx[0]
 
 first = BigramLanguageModel(vocab_size)
-logits, loss = first(xb, yb)
-print(logits.shape)
-print(loss) #negative log liklehood = -ln(1/68)
-idx1 = torch.zeros((1,1), dtype=torch.long) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
-result = first.generate(idx1, max_new_tokens=100)
-print(decode(result))
 
 
+#PyTorch Optimiser
+optimiser = torch.optim.AdamW(first.parameters(), lr=1e-3)
+batch_size = 32
+for steps in range(200):
+    #sampling batch of data
+    xb,yb = get_batch('train')
 
+    #eval of loss
+    logits, loss = first(xb, yb)
+    optimiser.zero_grad(set_to_none=True) #zeroing out gradients from previous step
+    loss.backward() #get grad from all paramters
+    optimiser.step() #using grad to update said paramters
+
+print("Loss is ", loss.item())
