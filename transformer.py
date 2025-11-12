@@ -160,8 +160,8 @@ for steps in range(max_iter):
     #every once in a while eval loss on train and val sets
     if steps % eval_interval == 0:
         loss = estimate_loss()
-        print(f"step: {steps}, loss: {loss}")
-        print(f"training loss: {loss['train']:.4f}, val loss: {loss['val']:.4f}")
+        #print(f"step: {steps}, loss: {loss}")
+        #print(f"training loss: {loss['train']:.4f}, val loss: {loss['val']:.4f}")
     #this code above links back to estimate_loss func
 
     #sampling batch of data
@@ -173,8 +173,41 @@ for steps in range(max_iter):
     loss.backward() #get grad from all paramters
     optimiser.step() #using grad to update said paramters
 
-print("Loss is ", loss.item())
-idx1 = torch.zeros((1,1), dtype=torch.long, device=device) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
-result = model.generate(idx1, max_new_tokens=500)
-print("results are")
-print(decode(result))
+
+#idx1 = torch.zeros((1,1), dtype=torch.long, device=device) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
+#result = model.generate(idx1, max_new_tokens=500)
+#print(decode(result))
+
+# ------- self attention --------
+torch.manual_seed(1337)
+
+B,T,C = 4,8,2
+x = torch.randn(B,T,C)
+x.shape
+
+xbow = torch.zeros((B,T,C))
+for b in range(B):
+    for t in range(T):
+        xprev = x[b,:t+1]
+        xbow[b,t] = torch.mean(xprev,0)
+
+#using matrices: (batch matrix multiply to do weighted aggregation)
+tril = torch.tril(torch.ones(T,T)) #lower triangle of 1s, upper triangles of 0 (heigth = T, width = T)
+weights = torch.zeros((T,T)) #affinity between tokens
+weights = weights.masked_fill(tril == 0, float('-inf')) #only allowing tokens to talk to previous tokens
+weights = F.softmax(weights, dim=-1)
+xbow3 = weights @ x # (B,T,T) @ (B,T,C) -----> (B,T,C) making xbow2 == xbow
+torch.allclose(xbow, xbow3)
+
+
+#Here tril allows tokens to communciate from all proceeding tokens beofre it.
+
+print(xbow3)
+print(xbow)
+
+
+
+
+
+
+
