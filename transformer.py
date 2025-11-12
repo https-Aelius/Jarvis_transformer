@@ -27,7 +27,16 @@ vocab_size = len(chars) #possible elements of our sequences as our vocab size
 stoi = {ch:i for i,ch in enumerate(chars)}
 itos = {i:ch for i,ch in enumerate(chars)}
 encode = lambda s: [stoi[c] for c in s] #encoder: takes in string and outputs integer
-decode = lambda l: ''.join([itos[i] for i in l]) #decoder: take in integers and outputs string
+
+#decode = lambda l: ''.join([itos[i] for i in l]) #decoder: take in integers and outputs string
+#decoder for outside vocab range
+def decode(l):
+    # Handle both tensor and list inputs
+    if torch.is_tensor(l):
+        l = l.tolist()  # Convert tensor to list
+    # Filter out any tokens that are out of vocab range
+    valid_tokens = [i for i in l if i in itos]
+    return ''.join([itos[i] for i in valid_tokens])
 
 #Tokenising the entire dataset:
 import torch #using pytorch
@@ -68,23 +77,28 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table= nn.Embedding(vocab_size, vocab_size)
 
     #passing index into token embedding table
-    def forward(self, idx, targets):
+    def forward(self, idx, targets=None):
         #idx and targets are both (B,T) tensor of integers
 
         # Pytorch will arrange all of this into batch by time by channel tensor.
         # Batch = 4, Time = 8, Channel = vocab_size
         logits = self.token_embedding_table(idx) #(B,T,C)
 
-        #however cross entropy require (B,C,T) so we're going to restructure our logits
-        B, T, C = logits.shape
-        logits = logits.view(B*T, C)
-        #restructure of targets
-        targets = targets.view(B*T)
+        if targets is None:
+            loss = None
 
-        #evaluating loss function by using cross entropy (from PyTorch)
-        loss = F.cross_entropy(logits, targets) #measures quality of logits/prediction with respect to targets.
+        else:
+            #however cross entropy require (B,C,T) so we're going to restructure our logits
+            B, T, C = logits.shape
+            logits = logits.view(B*T, C)
+            #restructure of targets
+            targets = targets.view(B*T)
+
+            #evaluating loss function by using cross entropy (from PyTorch)
+            loss = F.cross_entropy(logits, targets) #measures quality of logits/prediction with respect to targets.
 
         return logits, loss
+
 
     def generate(self, idx, max_new_tokens):
         #idx is (B,T)
@@ -96,14 +110,18 @@ class BigramLanguageModel(nn.Module):
             #applying softmax to get probabilities
             probs = F.softmax(logits, dim=-1) #(B,C)
             #sample from distribution
-            idx_next = torch.multinomi(probs, num_samples=1) #(B,1)
+            idx_next = torch.multinomial(probs, num_samples=1) #(B,1)
             #appending sampled index to running seq
             idx=torch.cat((idx, idx_next), dim=1) #(B, T+1)
-        return idx
+        return idx[0]
 
 first = BigramLanguageModel(vocab_size)
 logits, loss = first(xb, yb)
 print(logits.shape)
 print(loss) #negative log liklehood = -ln(1/68)
+idx1 = torch.zeros((1,1), dtype=torch.long) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
+result = first.generate(idx1, max_new_tokens=100)
+print(decode(result))
+
 
 
