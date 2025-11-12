@@ -18,6 +18,7 @@ eval_interval = 300
 learning_rate = 1e-2
 device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
 eval_iter = 200
+no_embed=32 #no. embeddings
 #---------------
 
 # Combine both Tony Stark and Jarvis dialogue into a single text corpus
@@ -101,18 +102,24 @@ from torch.nn import functional as F
 torch.manual_seed(1337)
 
 class BigramLanguageModel(nn.Module):
-    def __init__(self, vocab_size):
+    def __init__(self):
         super().__init__()
         #each token directly reads off logits for next token from lookup table
-        self.token_embedding_table= nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table= nn.Embedding(vocab_size, no_embed)
+        self.position_embedding_table= nn.Embedding(block_size, no_embed)
+        self.ln_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
     def forward(self, idx, targets=None):
         #idx and targets are both (B,T) tensor of integers
 
+        B,T = idx.shape
         # Pytorch will arrange all of this into batch by time by channel tensor.
         # Batch = 4, Time = 8, Channel = vocab_size
-        logits = self.token_embedding_table(idx) #(B,T,C)
+        tok_embed = self.token_embedding_table(idx) #(B,T,C)
+        pos_embed = self.position_embedding_table(torch.arange(T, device=device)) #integers of T -> -1 (T,C)
+        x = tok_embed + pos_embed # (B,T,C)
+        logits = self.ln_head(tok_embed) #(B,T,vocab_size)
 
         if targets is None:
             loss = None
@@ -145,7 +152,7 @@ class BigramLanguageModel(nn.Module):
             idx=torch.cat((idx, idx_next), dim=1) #(B, T+1)
         return idx[0]
 
-model = BigramLanguageModel(vocab_size)
+model = BigramLanguageModel()
 #for cuda
 for_cuda = model.to(device)
 
@@ -160,8 +167,8 @@ for steps in range(max_iter):
     #every once in a while eval loss on train and val sets
     if steps % eval_interval == 0:
         loss = estimate_loss()
-        #print(f"step: {steps}, loss: {loss}")
-        #print(f"training loss: {loss['train']:.4f}, val loss: {loss['val']:.4f}")
+        print(f"step: {steps}, loss: {loss}")
+        print(f"training loss: {loss['train']:.4f}, val loss: {loss['val']:.4f}")
     #this code above links back to estimate_loss func
 
     #sampling batch of data
@@ -181,29 +188,35 @@ for steps in range(max_iter):
 # ------- self attention --------
 torch.manual_seed(1337)
 
-B,T,C = 4,8,2
+B,T,C = 4,8,32
+#initiliasing x
 x = torch.randn(B,T,C)
-x.shape
 
-xbow = torch.zeros((B,T,C))
-for b in range(B):
-    for t in range(T):
-        xprev = x[b,:t+1]
-        xbow[b,t] = torch.mean(xprev,0)
+#single head performing self-attention
+head_size=16
+key = nn.Linear(C, head_size, bias=False)
+query = nn.Linear(C, head_size, bias=False)
+value = nn.Linear(C, head_size, bias=False)
+k = key(x) #(B,T,16)
+q = query(x) #(B,T,16)
+weights = q @ k.transpose(-1,-2) #(B,T,16) @ (B,16,T) ----> (B,T,T)
+#line above gives us the affinities.
+
 
 #using matrices: (batch matrix multiply to do weighted aggregation)
+#Here tril allows tokens to communciate from all proceeding tokens beofre it.
 tril = torch.tril(torch.ones(T,T)) #lower triangle of 1s, upper triangles of 0 (heigth = T, width = T)
 weights = torch.zeros((T,T)) #affinity between tokens
 weights = weights.masked_fill(tril == 0, float('-inf')) #only allowing tokens to talk to previous tokens
 weights = F.softmax(weights, dim=-1)
-xbow3 = weights @ x # (B,T,T) @ (B,T,C) -----> (B,T,C) making xbow2 == xbow
-torch.allclose(xbow, xbow3)
 
+v = value(x)
+out = weights @ v
+# v is a previous token saying: "Here's what I have that may be of use to you (talking to current token)"
+out.shape
+#xbow3 = weights @ x # (B,T,T) @ (B,T,C) -----> (B,T,C) making xbow2 == xbow
+print(weights)
 
-#Here tril allows tokens to communciate from all proceeding tokens beofre it.
-
-print(xbow3)
-print(xbow)
 
 
 
