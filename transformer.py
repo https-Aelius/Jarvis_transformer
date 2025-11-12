@@ -1,11 +1,24 @@
+#from pyexpat import model
+
 import pandas as pd
 from datasets import load_dataset
+import torch #using pytorch
 
 # Load the dataset
 dataset = load_dataset("ismaildlml/Jarvis-MCU-Dialogues")
 df = dataset['train'].to_pandas()
 
 #print(df.head()) Just checking if I have successfully imported the dataset from hf (hugging face)
+
+#parameters
+block_size = 8 #max context length for predictions
+batch_size = 4 #no. independent sequences we proccess in parallel
+max_iter = 10000
+eval_interval = 300
+learning_rate = 1e-2
+device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
+eval_iter = 200
+#---------------
 
 # Combine both Tony Stark and Jarvis dialogue into a single text corpus
 all_text = []
@@ -23,12 +36,13 @@ chars = sorted(list(set(full_text)))
 
 vocab_size = len(chars) #possible elements of our sequences as our vocab size
 
+#------ Encoder and Decoder -------
 #this tokeniser is very very very simple, visit openAIs Tiktoken or Google's sentencepeice
 stoi = {ch:i for i,ch in enumerate(chars)}
 itos = {i:ch for i,ch in enumerate(chars)}
 encode = lambda s: [stoi[c] for c in s] #encoder: takes in string and outputs integer
-
 #decode = lambda l: ''.join([itos[i] for i in l]) #decoder: take in integers and outputs string
+
 #decoder for outside vocab range
 def decode(l):
     # Handle both tensor and list inputs
@@ -38,8 +52,8 @@ def decode(l):
     valid_tokens = [i for i in l if i in itos]
     return ''.join([itos[i] for i in valid_tokens])
 
-#Tokenising the entire dataset:
-import torch #using pytorch
+
+# --------- Tokenising the entire dataset----------
 data = torch.tensor(encode(full_text))
 
 #splitting data into train and validation split
@@ -48,22 +62,38 @@ n = int(0.9*len(data)) #first 90% will be train, rest validation
 train_data = data[:n]
 val_data = data[n:]
 
-block_size = 8
+
 train_data[:block_size+1]
 
 torch.manual_seed(1337)
-batch_size = 4 #no. independent sequences we proccess in parallel
-block_size = 8 #max context length for predictions
+
+# ---------- data loader ----------
 def get_batch(split):
     #generating a small batch of data of inputs x and targets y
     data = train_data if split == 'train' else val_data #gets us our data array
     ix = torch.randint(len(data) - block_size, (batch_size,))
     x = torch.stack([data[i:i+block_size] for i in ix])
     y = torch.stack([data[i+1:i+block_size+1] for i in ix])
+    #for cuda device
+    x, y = x.to(device), y.to(device)
     return x, y
-xb, yb = get_batch('train')
 
-#print(xb)
+#
+@torch.no_grad() #context manager: everything inside this func we do not want back propogation
+def estimate_loss():
+    out={}
+    model.eval()
+    for split in['train', 'val']:
+        losses = torch.zeros(eval_iter)
+        for k in range(eval_iter):
+            X, Y = get_batch(split)
+            logits, loss = model(X,Y)
+            losses[k] = loss.item()
+        out[split] = losses.mean()
+    model.train()
+    return out
+#calculating mean of loss over multiple iterations
+
 
 #import torch
 import torch.nn as nn
@@ -115,20 +145,36 @@ class BigramLanguageModel(nn.Module):
             idx=torch.cat((idx, idx_next), dim=1) #(B, T+1)
         return idx[0]
 
-first = BigramLanguageModel(vocab_size)
+model = BigramLanguageModel(vocab_size)
+#for cuda
+for_cuda = model.to(device)
 
 
 #PyTorch Optimiser
-optimiser = torch.optim.AdamW(first.parameters(), lr=1e-3)
+optimiser = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 batch_size = 32
-for steps in range(200):
+
+# --------- Training Loop ----------
+for steps in range(max_iter):
+
+    #every once in a while eval loss on train and val sets
+    if steps % eval_interval == 0:
+        loss = estimate_loss()
+        print(f"step: {steps}, loss: {loss}")
+        print(f"training loss: {loss['train']:.4f}, val loss: {loss['val']:.4f}")
+    #this code above links back to estimate_loss func
+
     #sampling batch of data
     xb,yb = get_batch('train')
 
     #eval of loss
-    logits, loss = first(xb, yb)
+    logits, loss = model(xb, yb)
     optimiser.zero_grad(set_to_none=True) #zeroing out gradients from previous step
     loss.backward() #get grad from all paramters
     optimiser.step() #using grad to update said paramters
 
 print("Loss is ", loss.item())
+idx1 = torch.zeros((1,1), dtype=torch.long, device=device) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
+result = model.generate(idx1, max_new_tokens=500)
+print("results are")
+print(decode(result))
