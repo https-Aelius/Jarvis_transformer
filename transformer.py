@@ -157,11 +157,14 @@ class Block(nn.Module):
         head_size = no_embed // no_heads
         self.sa = MultiHeadAttention(no_heads, head_size)
         self.ffwd = FeedForward(no_embed)
+        self.layerNorm1 = nn.LayerNorm(no_embed) #using layerNorms from PyTorch
+        self.layerNorm2 = nn.LayerNorm(no_embed) #look at attention is all you need architecture
 
     def forward(self,x):
         # ----- residual connections ------
-        x = x + self.sa(x) #forking off here (to do communication)
-        x = x + self.ffwd(x) #forking off here (to do communication)
+        #applying layerNorm on x before feeding into self-attention and feedforward
+        x = x + self.sa(self.layerNorm1(x)) #forking off here (to do communication)
+        x = x + self.ffwd(self.layerNorm2(x)) #forking off here (to do communication)
         return x
 
 # ------ Language Model --------
@@ -177,6 +180,7 @@ class BigramLanguageModel(nn.Module):
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
+            nn.LayerNorm(no_embed), #look at attention is all you need architecture
         )
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
