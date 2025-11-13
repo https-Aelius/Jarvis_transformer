@@ -17,6 +17,7 @@ learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
 eval_iter = 200
 no_embed=32 #no. embeddings
+dropout = 0.1
 #---------------
 
 # Combine both Tony Stark and Jarvis dialogue into a single text corpus
