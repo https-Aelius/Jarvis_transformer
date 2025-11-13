@@ -99,7 +99,6 @@ import torch.nn as nn
 from torch.nn import functional as F
 torch.manual_seed(1337)
 
-
 # ------- single head self attention --------
 class Head(nn.Module):
     def __init__(self, head_size):
@@ -128,6 +127,16 @@ class Head(nn.Module):
         out = weights @ v
         return out
 
+#---- Multi Headed Self Attention ------
+class MultiHeadAttention(nn.Module): #multiple heads of self-attention running in parallel
+    def __init__(self, no_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(no_heads)])
+
+    def forward(self,x):
+        return torch.cat([h(x) for h in self.heads], dim=-1) #concatenate all outputs over channel dimension
+
+
 # ------ Language Model --------
 class BigramLanguageModel(nn.Module):
     def __init__(self):
@@ -135,7 +144,7 @@ class BigramLanguageModel(nn.Module):
         #each token directly reads off logits for next token from lookup table
         self.token_embedding_table= nn.Embedding(vocab_size, no_embed)
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
-        self.sa_head = Head(no_embed) #self attention head
+        self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
