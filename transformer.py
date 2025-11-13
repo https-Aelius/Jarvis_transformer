@@ -146,6 +146,18 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.net(x)
 
+# ---- Transformer Block: comunication followed by computation ------
+class Block(nn.Module):
+    def __init__ (self, no_embed, no_heads):
+        super().__init__()
+        head_size = no_embed // no_heads
+        self.sa = MultiHeadAttention(no_heads, head_size)
+        self.ffwd = FeedForward(no_embed)
+
+    def forward(self,x):
+        x = self.sa(x)
+        x = self.ffwd(x)
+        return x
 
 # ------ Language Model --------
 class BigramLanguageModel(nn.Module):
@@ -154,8 +166,13 @@ class BigramLanguageModel(nn.Module):
         #each token directly reads off logits for next token from lookup table
         self.token_embedding_table= nn.Embedding(vocab_size, no_embed)
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
-        self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
-        self.ffwd=FeedForward(no_embed)
+        #self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
+        #self.ffwd=FeedForward(no_embed)
+        self.blocks = nn.Sequential(
+            Block(no_embed, no_heads=4),
+            Block(no_embed, no_heads=4),
+            Block(no_embed, no_heads=4),
+        )
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
@@ -168,8 +185,9 @@ class BigramLanguageModel(nn.Module):
         tok_embed = self.token_embedding_table(idx) #(B,T,C)
         pos_embed = self.position_embedding_table(torch.arange(T, device=device)) #integers of T -> -1 (T,C)
         x = tok_embed + pos_embed # (B,T,C) encoding tensors
-        x = self.sa_head(x) #feeding tensor to self attention head
-        x = self.ffwd(x) #(B,T,C)
+        #x = self.sa_head(x) #feeding tensor to self attention head
+        #x = self.ffwd(x) #(B,T,C)
+        x = self.blocks(x) #(B,T,C)
         logits = self.langMod_head(x) #(B,T,vocab_size) #feeding tensor into decoder, giving us the logits
 
         if targets is None:
