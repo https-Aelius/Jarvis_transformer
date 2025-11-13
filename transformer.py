@@ -13,7 +13,7 @@ block_size = 8 #max context length for predictions
 batch_size = 4 #no. independent sequences we proccess in parallel
 max_iter = 50000
 eval_interval = 500
-learning_rate = 1e-3
+learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
 eval_iter = 200
 no_embed=32 #no. embeddings
@@ -136,6 +136,16 @@ class MultiHeadAttention(nn.Module): #multiple heads of self-attention running i
     def forward(self,x):
         return torch.cat([h(x) for h in self.heads], dim=-1) #concatenate all outputs over channel dimension
 
+class FeedForward(nn.Module):
+    def __init__(self, no_embed): #once improve try implement dropout
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(no_embed, no_embed), #linear layer
+            nn.ReLU(), #non-linearity
+        )
+    def forward(self, x):
+        return self.net(x)
+
 
 # ------ Language Model --------
 class BigramLanguageModel(nn.Module):
@@ -145,6 +155,7 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table= nn.Embedding(vocab_size, no_embed)
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
         self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
+        self.ffwd=FeedForward(no_embed)
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
@@ -158,6 +169,7 @@ class BigramLanguageModel(nn.Module):
         pos_embed = self.position_embedding_table(torch.arange(T, device=device)) #integers of T -> -1 (T,C)
         x = tok_embed + pos_embed # (B,T,C) encoding tensors
         x = self.sa_head(x) #feeding tensor to self attention head
+        x = self.ffwd(x) #(B,T,C)
         logits = self.langMod_head(x) #(B,T,vocab_size) #feeding tensor into decoder, giving us the logits
 
         if targets is None:
