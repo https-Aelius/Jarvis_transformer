@@ -1,6 +1,10 @@
 import pandas as pd
 from datasets import load_dataset
+#import torch
 import torch #using pytorch
+import torch.nn as nn
+from torch.nn import functional as F
+
 
 # Load the dataset
 dataset = load_dataset("ismaildlml/Jarvis-MCU-Dialogues")
@@ -9,16 +13,20 @@ df = dataset['train'].to_pandas()
 #print(df.head()) Just checking if I have successfully imported the dataset from hf (hugging face)
 
 #parameters
-block_size = 8 #max context length for predictions
-batch_size = 4 #no. independent sequences we proccess in parallel
-max_iter = 50000
+block_size = 64 #max context length for predictions
+batch_size = 256 #no. independent sequences we proccess in parallel
+max_iter = 5000
 eval_interval = 500
 learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
 eval_iter = 200
-no_embed=32 #no. embeddings
-dropout = 0.1
+no_embed=384 #no. embeddings
+no_heads = 6
+n_layer = 6
+dropout = 0.2
 #---------------
+
+torch.manual_seed(1337)
 
 # Combine both Tony Stark and Jarvis dialogue into a single text corpus
 all_text = []
@@ -65,7 +73,7 @@ val_data = data[n:]
 
 train_data[:block_size+1]
 
-torch.manual_seed(1337)
+
 
 # ---------- data loader ----------
 def get_batch(split):
@@ -95,10 +103,7 @@ def estimate_loss():
 #calculating mean of loss over multiple iterations
 
 
-#import torch
-import torch.nn as nn
-from torch.nn import functional as F
-torch.manual_seed(1337)
+
 
 # ------- single head self attention --------
 class Head(nn.Module):
@@ -182,15 +187,15 @@ class BigramLanguageModel(nn.Module):
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
         #self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
         #self.ffwd=FeedForward(no_embed)
-
+        """
         self.blocks = nn.Sequential(
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
             nn.LayerNorm(no_embed), #look at attention is all you need architecture
         )
-
-        #self.blocks = nn.Sequential(*[Block(no_embed, no_heads = no_heads) for _ in range(n_layer)])
+        """
+        self.blocks = nn.Sequential(*[Block(no_embed, no_heads = no_heads) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(no_embed) # layer norm
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
