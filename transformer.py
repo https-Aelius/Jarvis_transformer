@@ -132,16 +132,20 @@ class MultiHeadAttention(nn.Module): #multiple heads of self-attention running i
     def __init__(self, no_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(no_heads)])
+        self.proj = nn.Linear(no_embed, no_embed)
 
     def forward(self,x):
-        return torch.cat([h(x) for h in self.heads], dim=-1) #concatenate all outputs over channel dimension
+        out = torch.cat([h(x) for h in self.heads], dim=-1)  #concatenate all outputs over channel dimension
+        out = self.proj(out) #projection is linear transformation of outcome of this layer
+        return out
 
 class FeedForward(nn.Module):
     def __init__(self, no_embed): #once improve try implement dropout
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(no_embed, no_embed), #linear layer
+            nn.Linear(no_embed, 4 * no_embed), #linear layer
             nn.ReLU(), #non-linearity
+            nn.Linear(4 * no_embed, no_embed), #projection layer going back to residual pathway
         )
     def forward(self, x):
         return self.net(x)
@@ -155,8 +159,9 @@ class Block(nn.Module):
         self.ffwd = FeedForward(no_embed)
 
     def forward(self,x):
-        x = self.sa(x)
-        x = self.ffwd(x)
+        # ----- residual connections ------
+        x = x + self.sa(x) #forking off here (to do communication)
+        x = x + self.ffwd(x) #forking off here (to do communication)
         return x
 
 # ------ Language Model --------
