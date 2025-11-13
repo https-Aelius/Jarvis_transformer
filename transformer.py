@@ -108,6 +108,8 @@ class Head(nn.Module):
         self.value = nn.Linear(no_embed, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))  # tril allows tokens communcation from all proceeding tokens before it
 
+        self.dropout = nn.Dropout(dropout)
+
     def forward(self, x):
         B,T,C = x.shape
         # affinities
@@ -120,7 +122,8 @@ class Head(nn.Module):
         # weights = torch.zeros((T,T)) #affinity between tokens
         #decoder block
         weights = weights.masked_fill(self.tril[:T, :T] == 0, float('-inf'))  # only allowing tokens to talk to previous tokens
-        weights = F.softmax(weights, dim=-1)
+        weights = F.softmax(weights, dim=-1) # (B,T,C)
+        weights = self.dropout(weights)
 
         #aggregating values
         v = self.value(x)
@@ -133,6 +136,7 @@ class MultiHeadAttention(nn.Module): #multiple heads of self-attention running i
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(no_heads)])
         self.proj = nn.Linear(no_embed, no_embed)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self,x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)  #concatenate all outputs over channel dimension
@@ -146,6 +150,7 @@ class FeedForward(nn.Module):
             nn.Linear(no_embed, 4 * no_embed), #linear layer
             nn.ReLU(), #non-linearity
             nn.Linear(4 * no_embed, no_embed), #projection layer going back to residual pathway
+            nn.Dropout(dropout),
         )
     def forward(self, x):
         return self.net(x)
@@ -176,12 +181,16 @@ class BigramLanguageModel(nn.Module):
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
         #self.sa_head = MultiHeadAttention(4, no_embed//4) #4 heads of 8-dimensional self attention
         #self.ffwd=FeedForward(no_embed)
+
         self.blocks = nn.Sequential(
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
             Block(no_embed, no_heads=4),
             nn.LayerNorm(no_embed), #look at attention is all you need architecture
         )
+
+        #self.blocks = nn.Sequential(*[Block(no_embed, no_heads = no_heads) for _ in range(n_layer)])
+        self.ln_f = nn.LayerNorm(no_embed) # layer norm
         self.langMod_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
