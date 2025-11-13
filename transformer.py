@@ -1,6 +1,3 @@
-#from pyexpat import model
-from re import T
-
 import pandas as pd
 from datasets import load_dataset
 import torch #using pytorch
@@ -14,9 +11,9 @@ df = dataset['train'].to_pandas()
 #parameters
 block_size = 8 #max context length for predictions
 batch_size = 4 #no. independent sequences we proccess in parallel
-max_iter = 10000
-eval_interval = 300
-learning_rate = 1e-2
+max_iter = 50000
+eval_interval = 500
+learning_rate = 1e-3
 device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
 eval_iter = 200
 no_embed=32 #no. embeddings
@@ -103,28 +100,30 @@ from torch.nn import functional as F
 torch.manual_seed(1337)
 
 
-# ------- self attention --------
+# ------- single head self attention --------
 class Head(nn.Module):
     def __init__(self, head_size):
         super().__init__()
         self.key = nn.Linear(no_embed, head_size, bias=False)
         self.query = nn.Linear(no_embed, head_size, bias=False)
         self.value = nn.Linear(no_embed, head_size, bias=False)
-        self.register_buffer('tril', torch.tril(
-            torch.ones(block_size, block_size)))  # tril allows tokens communcation from all proceeding tokens before it
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))  # tril allows tokens communcation from all proceeding tokens before it
 
     def forward(self, x):
+        B,T,C = x.shape
+        # affinities
         k = self.key(x)  # (B,T,16)
         q = self.query(x)  # (B,T,16)
-        weigths = q @ k.transpose(-1, -2)  # (B,T,16) @ (B,16,T) ---> (B,T,T)
-        # affinities above
+        weights = q @ k.transpose(-2, -1)  * C**-0.5 # (B,T,16) @ (B,16,T) ---> (B,T,T)
+        #C^-0.5 allows for scaled attention
 
         # using matrices: (batch matrix multiply to do weighted aggregation)
         # weights = torch.zeros((T,T)) #affinity between tokens
-        weights = weights.masked_fill(self.tril[:T, :T] == 0,
-                                      float('-inf'))  # only allowing tokens to talk to previous tokens
+        #decoder block
+        weights = weights.masked_fill(self.tril[:T, :T] == 0, float('-inf'))  # only allowing tokens to talk to previous tokens
         weights = F.softmax(weights, dim=-1)
 
+        #aggregating values
         v = self.value(x)
         out = weights @ v
         return out
@@ -136,7 +135,8 @@ class BigramLanguageModel(nn.Module):
         #each token directly reads off logits for next token from lookup table
         self.token_embedding_table= nn.Embedding(vocab_size, no_embed)
         self.position_embedding_table= nn.Embedding(block_size, no_embed)
-        self.ln_head = nn.Linear(no_embed, vocab_size)
+        self.sa_head = Head(no_embed) #self attention head
+        self.langMod_head = nn.Linear(no_embed, vocab_size)
 
     #passing index into token embedding table
     def forward(self, idx, targets=None):
@@ -147,8 +147,9 @@ class BigramLanguageModel(nn.Module):
         # Batch = 4, Time = 8, Channel = vocab_size
         tok_embed = self.token_embedding_table(idx) #(B,T,C)
         pos_embed = self.position_embedding_table(torch.arange(T, device=device)) #integers of T -> -1 (T,C)
-        x = tok_embed + pos_embed # (B,T,C)
-        logits = self.ln_head(tok_embed) #(B,T,vocab_size)
+        x = tok_embed + pos_embed # (B,T,C) encoding tensors
+        x = self.sa_head(x) #feeding tensor to self attention head
+        logits = self.langMod_head(x) #(B,T,vocab_size) #feeding tensor into decoder, giving us the logits
 
         if targets is None:
             loss = None
@@ -169,8 +170,10 @@ class BigramLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         #idx is (B,T)
         for j in range(max_new_tokens):
+            #if idx is more than block size than our pos embedding table will run out of scope
+            idx_cond = idx[:,-block_size:] #this is cropping idx to the last block_size token
             #get predictions
-            logits, loss = self(idx)
+            logits, loss = self(idx_cond)
             #focus only on last time step
             logits = logits[:, -1, :] #Becoming (B,C)
             #applying softmax to get probabilities
@@ -209,11 +212,11 @@ for steps in range(max_iter):
     loss.backward() #get grad from all paramters
     optimiser.step() #using grad to update said paramters
 
+test1 = BigramLanguageModel()
+idx1 = torch.zeros((1,1), dtype=torch.long)
+result = test1.generate(idx1, max_new_tokens=100)
 
-#idx1 = torch.zeros((1,1), dtype=torch.long, device=device) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
-#result = model.generate(idx1, max_new_tokens=500)
-#print(decode(result))
-
+print(decode(result))
 
 
 
