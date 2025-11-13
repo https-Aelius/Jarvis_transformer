@@ -14,16 +14,17 @@ df = dataset['train'].to_pandas()
 
 #parameters
 block_size = 64 #max context length for predictions
-batch_size = 256 #no. independent sequences we proccess in parallel
-max_iter = 5000
-eval_interval = 500
+batch_size = 64 #no. independent sequences we proccess in parallel
+max_iter = 8000
+eval_interval = 400
 learning_rate = 3e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
-eval_iter = 200
-no_embed=384 #no. embeddings
-no_heads = 6
-n_layer = 6
-dropout = 0.2
+device = 'mps' if torch.backends.mps.is_available() else 'cpu'  # Use Apple MPS
+#device = 'cuda' if torch.cuda.is_available() else 'cpu' #allows to run on GPU (uses SIMD/parallel proccessing)
+eval_iter = 100
+no_embed=256 #no. embeddings
+no_heads = 8
+n_layer = 4
+dropout = 0.15
 #---------------
 
 torch.manual_seed(1337)
@@ -250,11 +251,12 @@ class BigramLanguageModel(nn.Module):
 model = BigramLanguageModel()
 #for cuda
 for_cuda = model.to(device)
+print(sum(p.numel() for p in model.parameters())/1e6, 'M parameters')
 
 
 #PyTorch Optimiser
 optimiser = torch.optim.AdamW(model.parameters(), lr=learning_rate)
-batch_size = 32
+
 
 # --------- Training Loop ----------
 for steps in range(max_iter):
@@ -275,11 +277,11 @@ for steps in range(max_iter):
     loss.backward() #get grad from all paramters
     optimiser.step() #using grad to update said paramters
 
-test1 = BigramLanguageModel()
-idx1 = torch.zeros((1,1), dtype=torch.long)
-result = test1.generate(idx1, max_new_tokens=100)
+# generate from the model
+context = torch.zeros((1, 1), dtype=torch.long, device=device)
+print(decode(m.generate(context, max_new_tokens=2000)[0].tolist()))
 
-print(decode(result))
+
 
 
 
