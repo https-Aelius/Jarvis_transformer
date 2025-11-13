@@ -1,4 +1,5 @@
 #from pyexpat import model
+from re import T
 
 import pandas as pd
 from datasets import load_dataset
@@ -101,6 +102,34 @@ import torch.nn as nn
 from torch.nn import functional as F
 torch.manual_seed(1337)
 
+
+# ------- self attention --------
+class Head(nn.Module):
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(no_embed, head_size, bias=False)
+        self.query = nn.Linear(no_embed, head_size, bias=False)
+        self.value = nn.Linear(no_embed, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(
+            torch.ones(block_size, block_size)))  # tril allows tokens communcation from all proceeding tokens before it
+
+    def forward(self, x):
+        k = self.key(x)  # (B,T,16)
+        q = self.query(x)  # (B,T,16)
+        weigths = q @ k.transpose(-1, -2)  # (B,T,16) @ (B,16,T) ---> (B,T,T)
+        # affinities above
+
+        # using matrices: (batch matrix multiply to do weighted aggregation)
+        # weights = torch.zeros((T,T)) #affinity between tokens
+        weights = weights.masked_fill(self.tril[:T, :T] == 0,
+                                      float('-inf'))  # only allowing tokens to talk to previous tokens
+        weights = F.softmax(weights, dim=-1)
+
+        v = self.value(x)
+        out = weights @ v
+        return out
+
+# ------ Language Model --------
 class BigramLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -184,42 +213,6 @@ for steps in range(max_iter):
 #idx1 = torch.zeros((1,1), dtype=torch.long, device=device) #batch = 1, time = 1, (1 by 1 tensor) Datatype is int.
 #result = model.generate(idx1, max_new_tokens=500)
 #print(decode(result))
-
-# ------- self attention --------
-torch.manual_seed(1337)
-
-B,T,C = 4,8,32
-#initiliasing x
-x = torch.randn(B,T,C)
-
-#single head performing self-attention
-head_size=16
-key = nn.Linear(C, head_size, bias=False)
-query = nn.Linear(C, head_size, bias=False)
-value = nn.Linear(C, head_size, bias=False)
-k = key(x) #(B,T,16)
-q = query(x) #(B,T,16)
-weights = q @ k.transpose(-1,-2) #(B,T,16) @ (B,16,T) ----> (B,T,T)
-#line above gives us the affinities.
-
-
-#using matrices: (batch matrix multiply to do weighted aggregation)
-#Here tril allows tokens to communciate from all proceeding tokens beofre it.
-tril = torch.tril(torch.ones(T,T)) #lower triangle of 1s, upper triangles of 0 (heigth = T, width = T)
-weights = torch.zeros((T,T)) #affinity between tokens
-weights = weights.masked_fill(tril == 0, float('-inf')) #only allowing tokens to talk to previous tokens
-weights = F.softmax(weights, dim=-1)
-
-v = value(x)
-out = weights @ v
-# v is a previous token saying: "Here's what I have that may be of use to you (talking to current token)"
-out.shape
-#xbow3 = weights @ x # (B,T,T) @ (B,T,C) -----> (B,T,C) making xbow2 == xbow
-print(weights)
-
-
-
-
 
 
 
