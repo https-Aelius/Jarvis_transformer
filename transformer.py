@@ -279,7 +279,7 @@ for steps in range(max_iter):
 
 # generate from the model
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
-print(decode(model.generate(context, max_new_tokens=2000)[0].tolist()))
+print(decode(model.generate(context, max_new_tokens=2000)))
 
 
 
